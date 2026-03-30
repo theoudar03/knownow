@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .animate-float-slow {
+    animation: float 25s ease-in-out infinite;
+  }
+  .animate-float-medium {
+    animation: float 20s ease-in-out infinite reverse;
+  }
+  .animate-float-fast {
+    animation: float 15s ease-in-out infinite;
+  }
+  .delay-300 {
+    animation-delay: -5s;
+  }
+  .delay-700 {
+    animation-delay: -10s;
+  }
+}
+
+@keyframes float {
+  0% { transform: translateY(0px) translateX(0px) scale(1); }
+  33% { transform: translateY(-30px) translateX(20px) scale(1.05); }
+  66% { transform: translateY(20px) translateX(-20px) scale(0.95); }
+  100% { transform: translateY(0px) translateX(0px) scale(1); }
+}
