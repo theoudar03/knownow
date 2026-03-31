@@ -546,6 +546,38 @@ function App() {
     }
   };
 
+  const shareInstantMeme = async () => {
+    if (!instantResult?.memeUrl) return;
+    setLoading(true); setError(null);
+    try {
+      const response = await fetch(instantResult.memeUrl);
+      const blob = await response.blob();
+      
+      if (navigator.share) {
+        const file = new File([blob], "knownow-meme.png", { type: "image/png" });
+        await navigator.share({
+          files: [file],
+          title: "KnowNow Meme",
+          text: "Check this meme!"
+        });
+      } else {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = "knownow-meme.png";
+        link.click();
+        alert("Downloaded image. Please share manually.");
+        window.open(`https://wa.me/?text=${encodeURIComponent("Check this meme!")}`, '_blank');
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setError("Share failed");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ── Smart Meme Mode ──
   const selectBestTemplate = (aiOutput) => {
     const top = getSmartTemplates(aiOutput, TEMPLATES);
@@ -582,7 +614,7 @@ function App() {
       // Step 3: Generate meme image
       const top = bestCap.topText || bestCap.text || '';
       const bottom = bestCap.bottomText || '';
-      const memeRes = await fetch('http://localhost:5000/generate-meme', {
+      const memeRes = await fetch(`${backendURL}/generate-meme`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topText: top, bottomText: bottom, templateId: bestTemplate.id }),
       });
@@ -804,7 +836,7 @@ function App() {
                 </div>
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
-                  <button onClick={exportMeme} className="py-4 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-black font-bold text-xs uppercase transition-all hover:scale-105 active:scale-95 shadow-lg shadow-black/10">Download</button>
+                  <button onClick={shareInstantMeme} className="py-4 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-black font-bold text-xs uppercase transition-all hover:scale-105 active:scale-95 shadow-lg shadow-black/10">Share 🚀</button>
                   <button onClick={instantMeme} className="py-4 rounded-xl bg-amber-500 text-white font-bold text-xs uppercase transition-all hover:scale-105 active:scale-95 shadow-lg shadow-amber-500/10">Retry ✨</button>
                   <button onClick={() => setView('custom')} className="py-4 rounded-xl bg-white/60 dark:bg-white/10 border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 font-bold text-xs uppercase transition-all hover:scale-105 active:scale-95">Edit 🎨</button>
                   <button onClick={() => { setInstantResult(null); setInputText(''); }} className="py-4 rounded-xl bg-white/60 dark:bg-white/10 border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 font-bold text-xs uppercase transition-all hover:scale-105 active:scale-95">New ⊕</button>
