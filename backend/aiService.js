@@ -117,6 +117,7 @@ Message: {{USER_INPUT}}`;
       }
 
       // Ensure textType is set in the response
+      // This is important for the frontend to know how to render the captions
       parsedData.textType = textType;
       return parsedData;
     } catch (parseError) {
