@@ -69,3 +69,4 @@ app.post('/generate-meme', async (req, res) => {
 app.listen(port, () => {
   console.log(`Backend server running on http://localhost:${port}`);
 });
+// aiService.js
