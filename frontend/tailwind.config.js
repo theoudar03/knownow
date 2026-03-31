@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 const defaultTheme = require('tailwindcss/defaultTheme')
 
+// Tailwind configuration for the KnowNow frontend
 export default {
   darkMode: 'class',
   content: [

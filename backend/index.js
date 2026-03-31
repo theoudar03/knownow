@@ -4,9 +4,11 @@ const dotenv = require('dotenv');
 const axios = require('axios');
 const aiService = require('./aiService');
 
+// Load environment variables from .env file
 dotenv.config();
 
 const app = express();
+// Enable CORS and JSON body parsing for API requests
 app.use(cors());
 app.use(express.json());
 
