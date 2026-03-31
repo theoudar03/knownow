@@ -2,6 +2,10 @@
 
 > Transform boring academic updates into engaging, shareable memes using AI.
 
+[![Live Demo](https://img.shields.io/badge/🌐%20Live%20Demo-knownow--ai.web.app-purple?style=for-the-badge)](https://knownow-ai.web.app)
+
+🔗 **Live App**: [https://knownow-ai.web.app](https://knownow-ai.web.app)
+
 ---
 
 ## 🧠 Problem Statement
