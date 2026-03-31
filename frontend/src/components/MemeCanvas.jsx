@@ -1,329 +1,447 @@
-import React, { useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react';
-import html2canvas from 'html2canvas';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
+import { Stage, Layer, Text, Image as KonvaImage, Line, Group, Circle } from "react-konva";
 
-// Fixed canvas dimensions — single source of truth
-const CANVAS_WIDTH = 500;
-const CANVAS_HEIGHT = 500;
+const MAX_WIDTH = 500;
+const MAX_HEIGHT = 500;
+const SNAP_THRESHOLD = 15;
 
-// Snap positions in pixels
-const SNAP_ZONES_Y = [CANVAS_HEIGHT * 0.10, CANVAS_HEIGHT * 0.50, CANVAS_HEIGHT * 0.85];
-const SNAP_X = CANVAS_WIDTH / 2;
-const SNAP_PX = 12;
+function useImage(url) {
+  const [image, setImage] = useState(null);
 
-const MemeCanvas = forwardRef(({ templateUrl, topText, bottomText, onTopTextChange, onBottomTextChange, topTextStyle, bottomTextStyle }, ref) => {
-  const captureRef = useRef(null);
-
-  // Pixel positions (default: centered top and bottom)
-  const [topPos, setTopPos] = useState({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT * 0.10 });
-  const [bottomPos, setBottomPos] = useState({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT * 0.85 });
-
-  const [dragging, setDragging] = useState(null);
-  const [editing, setEditing] = useState(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [snapGuide, setSnapGuide] = useState(null);
-  const rafRef = useRef(null);
-  const pendingPos = useRef(null);
-
-  // Reset positions on template change
   useEffect(() => {
-    setTopPos({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT * 0.10 });
-    setBottomPos({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT * 0.85 });
-  }, [templateUrl]);
+    if (!url) {
+      setImage(null);
+      return;
+    }
+
+    const img = new window.Image();
+    img.crossOrigin = "Anonymous";
+    img.src = url;
+
+    img.onload = () => setImage(img);
+  }, [url]);
+
+  return image;
+}
+
+const MemeCanvas = forwardRef(({ templateUrl, texts, setTexts, topTextStyle, bottomTextStyle }, ref) => {
+  const stageRef = useRef(null);
+  const image = useImage(templateUrl);
+
+  const [canvasSize, setCanvasSize] = useState({ width: 500, height: 500 });
+  const [animatedSize, setAnimatedSize] = useState({ width: 500, height: 500 });
+  
+  const [showGuides, setShowGuides] = useState(true);
+  const [guides, setGuides] = useState({ vertical: null, horizontal: null });
+  const [hoveredTextId, setHoveredTextId] = useState(null);
+  const [selectedTextId, setSelectedTextId] = useState(null);
+  const [editingTextId, setEditingTextId] = useState(null);
+  const textRefs = useRef({});
+
+  // Update canvas size when image loads
+  useEffect(() => {
+    if (image) {
+      const originalWidth = image.width;
+      const originalHeight = image.height;
+      
+      const ratio = Math.min(MAX_WIDTH / originalWidth, MAX_HEIGHT / originalHeight);
+      const scaledWidth = originalWidth * ratio;
+      const scaledHeight = originalHeight * ratio;
+      
+      const oldHeight = canvasSize.height;
+      setCanvasSize({ width: scaledWidth, height: scaledHeight });
+      
+      // Proportional scaling for all text positions
+      if (oldHeight > 0) {
+        setTexts(prev => prev.map(t => ({
+          ...t,
+          y: t.y * (scaledHeight / oldHeight)
+        })));
+      }
+    }
+  }, [image]);
+
+  // Handle Dimension Animation
+  useEffect(() => {
+    const duration = 400;
+    const startTime = performance.now();
+    const startSize = { ...animatedSize };
+    const endSize = { ...canvasSize };
+
+    let animationFrame;
+
+    function animate(time) {
+      const t = Math.min((time - startTime) / duration, 1);
+      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      setAnimatedSize({
+        width: startSize.width + (endSize.width - startSize.width) * ease,
+        height: startSize.height + (endSize.height - startSize.height) * ease
+      });
+
+      if (t < 1) {
+        animationFrame = requestAnimationFrame(animate);
+      }
+    }
+
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [canvasSize]);
 
   // Expose pixel-perfect download
   useImperativeHandle(ref, () => ({
     downloadAsImage: async () => {
-      if (!captureRef.current) return;
-
-      await document.fonts.ready;
-
-      // Hide UI-only elements
-      const hints = captureRef.current.querySelectorAll('[data-hint]');
-      const rings = captureRef.current.querySelectorAll('[data-ring]');
-      hints.forEach(el => { el.style.display = 'none'; });
-      rings.forEach(el => {
-        el.dataset.prevBg = el.style.background || '';
-        el.dataset.prevBoxShadow = el.style.boxShadow || '';
-        el.style.background = 'transparent';
-        el.style.boxShadow = 'none';
-      });
-
-      try {
-        const canvas = await html2canvas(captureRef.current, {
-          useCORS: true,
-          scale: 2,
-          backgroundColor: null,
-          logging: false,
-          width: CANVAS_WIDTH,
-          height: CANVAS_HEIGHT,
-        });
-        const link = document.createElement('a');
-        link.download = 'knownow-meme.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-      } finally {
-        hints.forEach(el => { el.style.display = ''; });
-        rings.forEach(el => {
-          el.style.background = el.dataset.prevBg || '';
-          el.style.boxShadow = el.dataset.prevBoxShadow || '';
-          delete el.dataset.prevBg;
-          delete el.dataset.prevBoxShadow;
-        });
-      }
+      if (!stageRef.current) return;
+      const uri = stageRef.current.toDataURL({ pixelRatio: 2 });
+      const link = document.createElement('a');
+      link.download = 'knownow-meme.png';
+      link.href = uri;
+      link.click();
+    },
+    getMemeDataURL: async () => {
+      if (!stageRef.current) return null;
+      return stageRef.current.toDataURL({ pixelRatio: 2 });
     }
   }));
 
-  // --- Drag handlers (pixel-based) ---
-  const handleMouseDown = useCallback((which, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!captureRef.current) return;
-    const rect = captureRef.current.getBoundingClientRect();
-    const scale = CANVAS_WIDTH / rect.width; // handle visual scaling
-    const currentPos = which === 'top' ? topPos : bottomPos;
-    setDragOffset({
-      x: (e.clientX - rect.left) * scale - currentPos.x,
-      y: (e.clientY - rect.top) * scale - currentPos.y,
-    });
-    setDragging(which);
-    setSnapGuide(null);
-  }, [topPos, bottomPos]);
+  function handleDragMove(e, id) {
+    const node = e.target;
+    let x = node.x();
+    let y = node.y();
 
-  const handleMouseMove = useCallback((e) => {
-    if (!dragging || !captureRef.current) return;
-    const rect = captureRef.current.getBoundingClientRect();
-    const scale = CANVAS_WIDTH / rect.width;
+    let newGuides = { vertical: null, horizontal: null };
+    const centerX = animatedSize.width / 2;
+    const centerY = animatedSize.height / 2;
 
-    let newX = (e.clientX - rect.left) * scale - dragOffset.x;
-    let newY = (e.clientY - rect.top) * scale - dragOffset.y;
+    if (showGuides) {
+      // Vertical center snap
+      if (Math.abs(x - 0) < SNAP_THRESHOLD) {
+        x = 0;
+        newGuides.vertical = animatedSize.width / 2; 
+      }
 
-    // Clamp
-    newX = Math.max(20, Math.min(CANVAS_WIDTH - 20, newX));
-    newY = Math.max(20, Math.min(CANVAS_HEIGHT - 20, newY));
-
-    // Snap
-    let guide = null;
-    if (Math.abs(newX - SNAP_X) < SNAP_PX) {
-      newX = SNAP_X;
-      guide = { xPx: SNAP_X };
-    }
-    for (const snapY of SNAP_ZONES_Y) {
-      if (Math.abs(newY - snapY) < SNAP_PX) {
-        newY = snapY;
-        guide = { ...(guide || {}), yPx: snapY };
-        break;
+      // Horizontal center/top/bottom snap
+      if (Math.abs(y - centerY) < SNAP_THRESHOLD) {
+        y = centerY;
+        newGuides.horizontal = centerY;
+      }
+      if (Math.abs(y - animatedSize.height * 0.1) < SNAP_THRESHOLD) {
+        y = animatedSize.height * 0.1;
+        newGuides.horizontal = animatedSize.height * 0.1;
+      }
+      if (Math.abs(y - animatedSize.height * 0.85) < SNAP_THRESHOLD) {
+        y = animatedSize.height * 0.85;
+        newGuides.horizontal = animatedSize.height * 0.85;
       }
     }
-    setSnapGuide(guide);
 
-    pendingPos.current = { x: newX, y: newY };
-    if (!rafRef.current) {
-      rafRef.current = requestAnimationFrame(() => {
-        if (pendingPos.current) {
-          const pos = pendingPos.current;
-          if (dragging === 'top') setTopPos(pos);
-          else setBottomPos(pos);
-        }
-        rafRef.current = null;
-      });
-    }
-  }, [dragging, dragOffset]);
+    node.position({ x, y });
+    setGuides(newGuides);
+  }
 
-  const handleMouseUp = useCallback(() => {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    if (pendingPos.current && dragging) {
-      const pos = pendingPos.current;
-      if (dragging === 'top') setTopPos(pos);
-      else setBottomPos(pos);
-      pendingPos.current = null;
-    }
-    setDragging(null);
-    setSnapGuide(null);
-  }, [dragging]);
+  function handleDragEnd(id, e) {
+    setTexts(prev => prev.map(t => t.id === id ? { ...t, x: e.target.x(), y: e.target.y() } : t));
+    setGuides({ vertical: null, horizontal: null });
+  }
 
-  useEffect(() => {
-    if (dragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [dragging, handleMouseMove, handleMouseUp]);
-
-  // --- Pure inline style builder (px only, no transforms) ---
-  const buildStyle = (ts) => ({
-    fontFamily: ts.fontFamily || "'Impact', 'Arial Black', sans-serif",
-    fontSize: `${ts.fontSize || 28}px`,
-    color: ts.color || '#FFFFFF',
-    fontWeight: ts.bold !== false ? '900' : '400',
-    textAlign: 'center',
-    WebkitTextStroke: ts.stroke === true
-      ? (ts.color === '#FFFFFF' ? '2px #000' : '1.5px rgba(0,0,0,0.6)')
-      : '0px transparent',
-    textShadow: ts.stroke === true
-      ? '2px 2px 4px rgba(0,0,0,0.8), -1px -1px 2px rgba(0,0,0,0.5)'
-      : 'none',
-    textTransform: 'uppercase',
-    lineHeight: '1.15',
-    letterSpacing: '0.5px',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    userSelect: 'none',
-  });
-
-  // Text width in px (80% of canvas)
-  const TEXT_WIDTH = CANVAS_WIDTH * 0.80;
-
-  // --- Render text overlay (pure px, no transforms) ---
-  const renderTextOverlay = (which, pos, text, onChange, elemStyle) => {
-    const isEditing = editing === which;
-    const isDragging = dragging === which;
-    const computedStyle = buildStyle(elemStyle);
-
-    return (
-      <div
-        key={which}
-        style={{
-          position: 'absolute',
-          left: `${pos.x - TEXT_WIDTH / 2}px`,
-          top: `${pos.y}px`,
-          width: `${TEXT_WIDTH}px`,
-          zIndex: isDragging ? 20 : 10,
-          cursor: isDragging ? 'grabbing' : 'grab',
-        }}
-        onMouseDown={(e) => handleMouseDown(which, e)}
-        onDoubleClick={(e) => { e.stopPropagation(); setEditing(which); }}
-      >
-        <div
-          data-ring="true"
-          style={{
-            position: 'relative',
-            padding: '4px 12px',
-            borderRadius: '8px',
-            background: isEditing ? 'rgba(0,0,0,0.2)' : isDragging ? 'rgba(0,0,0,0.1)' : 'transparent',
-            boxShadow: isEditing
-              ? '0 0 0 2px rgba(168,85,247,0.8), 0 0 0 4px rgba(168,85,247,0.2)'
-              : isDragging
-                ? '0 0 0 2px rgba(96,165,250,0.6)'
-                : 'none',
-            transition: 'box-shadow 0.15s ease, background 0.15s ease',
-          }}
-        >
-          {isEditing ? (
-            <textarea
-              autoFocus
-              value={text}
-              onChange={(e) => onChange(e.target.value)}
-              onBlur={() => setEditing(null)}
-              onKeyDown={(e) => { if (e.key === 'Escape') setEditing(null); }}
-              rows={2}
-              style={{
-                ...computedStyle,
-                cursor: 'text',
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                width: '100%',
-                resize: 'none',
-              }}
-            />
-          ) : (
-            <span style={{ ...computedStyle, display: 'block' }}>
-              {text || (which === 'top' ? 'TOP TEXT' : 'BOTTOM TEXT')}
-            </span>
-          )}
-        </div>
-        {!isDragging && !isEditing && (
-          <div data-hint="true" style={{
-            textAlign: 'center', fontSize: '8px', color: 'rgba(255,255,255,0.35)',
-            marginTop: '4px', pointerEvents: 'none', fontWeight: 500,
-          }}>
-            drag · double-click to edit
-          </div>
-        )}
-      </div>
-    );
+  const deleteText = (id) => {
+    setTexts(prev => prev.filter(t => t.id !== id));
+    setHoveredTextId(null);
   };
 
+  const mapStyleToKonva = (style) => {
+    return {
+      fontFamily: style.fontFamily || "'Impact', sans-serif",
+      fontSize: parseInt(style.fontSize) || 28,
+      fill: style.color || '#ffffff',
+      fontStyle: style.bold !== false ? 'bold' : 'normal',
+      align: style.align || 'center',
+      stroke: style.stroke ? (style.strokeColor || '#000000') : null,
+      strokeWidth: style.stroke ? (style.strokeWidth || 2) : 0,
+    };
+  };
+
+  const topKonvaStyle = mapStyleToKonva(topTextStyle);
+  const bottomKonvaStyle = mapStyleToKonva(bottomTextStyle);
+
+  const getTrashPos = (id) => {
+    const node = textRefs.current[id]?.current;
+    if (!node || !stageRef.current) return { x: 0, y: 0 };
+    
+    // Get node base position relative to stage
+    // Since width is set to canvasWidth, node is centered by the canvas
+    const box = node.getClientRect({ relativeTo: stageRef.current });
+    const textWidth = node.getTextWidth();
+    const align = node.align();
+    
+    // Calculate exact X based on alignment
+    let iconX;
+    if (align === 'center') {
+      iconX = box.x + (box.width / 2) + (textWidth / 2) + 14;
+    } else if (align === 'right') {
+      iconX = box.x + box.width + 12;
+    } else { // left
+      iconX = box.x + textWidth + 14;
+    }
+    
+    let iconY = box.y + (box.height / 2);
+    
+    // Edge Case: Prevent icon from going outside canvas right edge
+    const canvasWidth = animatedSize.width;
+    if (iconX > canvasWidth - 25) {
+      // If we're on the right side, flip the icon to the left side of the text
+      if (align === 'center') {
+        iconX = box.x + (box.width / 2) - (textWidth / 2) - 14;
+      } else {
+        iconX = box.x - 28;
+      }
+    }
+    
+    // Edge Case: Prevent going outside top/bottom
+    if (iconY < 15) iconY = 15;
+    if (iconY > animatedSize.height - 15) iconY = animatedSize.height - 15;
+
+    return { x: iconX, y: iconY };
+  };
+
+  const handleDoubleClick = (e, id) => {
+    const textNode = e.target;
+    const stage = textNode.getStage();
+    const layer = textNode.getLayer();
+    const container = stage.container();
+    const stageBox = container.getBoundingClientRect();
+    const textPosition = textNode.getAbsolutePosition();
+
+    setEditingTextId(id);
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+
+    const initialText = textNode.text();
+    textarea.value = initialText === 'TOP TEXT' || initialText === 'BOTTOM TEXT' || initialText === 'TEXT' ? '' : initialText;
+    
+    // Position
+    textarea.style.position = 'absolute';
+    textarea.style.top = `${stageBox.top + textPosition.y}px`;
+    textarea.style.left = `${stageBox.left + textPosition.x}px`;
+    textarea.style.width = `${textNode.width() * (stageBox.width / animatedSize.width)}px`;
+    textarea.style.height = `${textNode.height() * (stageBox.height / animatedSize.height) + 20}px`;
+    
+    // Style sync
+    textarea.style.fontSize = `${textNode.fontSize() * (stageBox.width / animatedSize.width)}px`;
+    textarea.style.fontFamily = textNode.fontFamily();
+    textarea.style.textAlign = textNode.align();
+    textarea.style.color = textNode.fill();
+    textarea.style.lineHeight = textNode.lineHeight();
+    textarea.style.fontStyle = textNode.fontStyle();
+    textarea.style.fontWeight = textNode.fontStyle() === 'bold' ? 'bold' : 'normal';
+    
+    // Reset defaults
+    textarea.style.border = 'none';
+    textarea.style.padding = '0px';
+    textarea.style.margin = '0px';
+    textarea.style.outline = 'none';
+    textarea.style.resize = 'none';
+    textarea.style.overflow = 'hidden';
+    textarea.style.background = 'transparent';
+    textarea.style.whiteSpace = 'pre-wrap';
+    textarea.style.zIndex = '1000';
+    textarea.style.transformOrigin = 'top left';
+
+    textarea.focus({ preventScroll: true });
+
+    function removeTextarea(save = true) {
+      if (textarea.parentNode) {
+        if (save) {
+          const newText = textarea.value.trim();
+          setTexts(prev => prev.map(t => t.id === id ? { ...t, text: newText } : t));
+        }
+        window.removeEventListener('click', handleOutsideClick);
+        textarea.parentNode.removeChild(textarea);
+        setEditingTextId(null);
+        layer.batchDraw();
+      }
+    }
+
+    function handleOutsideClick(event) {
+      if (event.target !== textarea) {
+        removeTextarea();
+      }
+    }
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        removeTextarea();
+      }
+      if (e.key === 'Escape') {
+        removeTextarea(false);
+      }
+    });
+
+    textarea.addEventListener('blur', () => {
+      removeTextarea();
+    });
+
+    // Handle stage scaling
+    setTimeout(() => {
+        window.addEventListener('click', handleOutsideClick);
+    }, 0);
+  };
+
+  const containerRef = useRef(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        // The Stage is designed for 500px width.
+        // If container is smaller, we scale down.
+        const newScale = Math.min(width / animatedSize.width, 1);
+        setScale(newScale);
+      }
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [animatedSize.width]);
+
   return (
-    <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-      {/* Scaling wrapper — visually fits the panel, but internal canvas is fixed size */}
+    <div ref={containerRef} className="w-full flex flex-col items-center">
       <div style={{
-        width: '100%',
-        maxWidth: `${CANVAS_WIDTH}px`,
+        width: `${animatedSize.width * scale}px`,
+        height: `${animatedSize.height * scale}px`,
         position: 'relative',
-        aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
-        borderRadius: '16px',
+        borderRadius: '24px',
         overflow: 'hidden',
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
       }}>
-        {/* The capture target — exactly CANVAS_WIDTH x CANVAS_HEIGHT */}
-        <div
-          ref={captureRef}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: `${CANVAS_WIDTH}px`,
-            height: `${CANVAS_HEIGHT}px`,
-            transformOrigin: 'top left',
-            // Scale to fit the wrapper width
-            transform: 'scale(var(--canvas-scale, 1))',
-          }}
-          onClick={() => { if (!dragging) setEditing(null); }}
-        >
-          {templateUrl && (
-            <img
-              src={templateUrl}
-              alt="Meme template"
-              style={{
-                position: 'absolute', inset: 0,
-                width: `${CANVAS_WIDTH}px`, height: `${CANVAS_HEIGHT}px`,
-                objectFit: 'contain', pointerEvents: 'none',
-              }}
-              draggable={false}
-              crossOrigin="anonymous"
-            />
-          )}
+        <div style={{
+          position: 'absolute', inset: 0,
+          width: `${animatedSize.width}px`, height: `${animatedSize.height}px`,
+          transformOrigin: 'top left', 
+          transform: `scale(${scale})`,
+          opacity: image ? 1 : 0, 
+          transition: 'opacity 0.3s'
+        }}>
+          <Stage 
+            width={animatedSize.width} 
+            height={animatedSize.height} 
+            ref={stageRef}
+            onMouseEnter={(e) => {
+              const container = e.target.getStage().container();
+              container.style.cursor = 'default';
+            }}
+            onClick={() => setSelectedTextId(null)}
+            onTap={() => setSelectedTextId(null)}
+          >
+            <Layer>
+              {image && <KonvaImage image={image} width={animatedSize.width} height={animatedSize.height} />}
 
-          {!templateUrl && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <p style={{ color: '#9ca3af', fontSize: '14px', fontWeight: 500 }}>Select a template to begin</p>
-            </div>
-          )}
+              {showGuides && guides.vertical !== null && <Line points={[guides.vertical, 0, guides.vertical, animatedSize.height]} stroke="white" strokeWidth={1} opacity={0.3} />}
+              {showGuides && guides.horizontal !== null && <Line points={[0, guides.horizontal, animatedSize.width, guides.horizontal]} stroke="white" strokeWidth={1} opacity={0.3} />}
 
-          {renderTextOverlay('top', topPos, topText, onTopTextChange, topTextStyle)}
-          {renderTextOverlay('bottom', bottomPos, bottomText, onBottomTextChange, bottomTextStyle)}
+              {texts.map((t) => {
+                const style = t.type === 'bottom' ? bottomKonvaStyle : topKonvaStyle;
+                const isHovered = hoveredTextId === t.id;
+                const isSelected = selectedTextId === t.id;
+                const showTrash = isHovered || isSelected;
+                
+                if (!textRefs.current[t.id]) textRefs.current[t.id] = React.createRef();
+
+                return (
+                  <Group key={t.id}>
+                    <Text
+                      ref={textRefs.current[t.id]}
+                      text={t.text || (t.type === 'top' ? 'TOP TEXT' : t.type === 'single' ? 'TEXT' : 'BOTTOM TEXT')}
+                      x={t.x}
+                      y={t.y}
+                      width={animatedSize.width}
+                      draggable={editingTextId !== t.id}
+                      visible={editingTextId !== t.id}
+                      onDragMove={(e) => handleDragMove(e, t.id)}
+                      onDragEnd={(e) => handleDragEnd(t.id, e)}
+                      onMouseEnter={(e) => {
+                        if (editingTextId === t.id) return;
+                        setHoveredTextId(t.id);
+                        const container = e.target.getStage().container();
+                        container.style.cursor = 'move';
+                      }}
+                      onMouseLeave={(e) => {
+                        setHoveredTextId(null);
+                        const container = e.target.getStage().container();
+                        container.style.cursor = 'default';
+                      }}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        setSelectedTextId(t.id);
+                      }}
+                      onTap={(e) => {
+                        e.cancelBubble = true;
+                        setSelectedTextId(t.id);
+                      }}
+                      onDblClick={(e) => handleDoubleClick(e, t.id)}
+                      onDblTap={(e) => handleDoubleClick(e, t.id)}
+                      shadowColor={isHovered ? "white" : "transparent"}
+                      shadowBlur={10}
+                      shadowOpacity={0.4}
+                      {...style}
+                    />
+                    {showTrash && editingTextId !== t.id && (
+                      <Group 
+                        {...getTrashPos(t.id)}
+                        onClick={() => deleteText(t.id)}
+                        onTap={() => deleteText(t.id)}
+                        onMouseEnter={(e) => {
+                          const container = e.target.getStage().container();
+                          container.style.cursor = 'pointer';
+                          setHoveredTextId(t.id);
+                        }}
+                        onMouseLeave={(e) => {
+                          const container = e.target.getStage().container();
+                          container.style.cursor = 'default';
+                        }}
+                        // Smooth micro-animation props
+                        scaleX={isHovered ? 1.05 : 1}
+                        scaleY={isHovered ? 1.05 : 1}
+                        opacity={1}
+                      >
+                        <Circle 
+                          radius={11} 
+                          fill="#111827" 
+                          opacity={0.9} 
+                          shadowBlur={5} 
+                          shadowColor="black" 
+                          shadowOpacity={0.2} 
+                        />
+                        <Text 
+                          text="🗑" 
+                          fontSize={11} 
+                          fill="white" 
+                          offsetX={6} 
+                          offsetY={6} 
+                          align="center"
+                        />
+                      </Group>
+                    )}
+                  </Group>
+                );
+              })}
+            </Layer>
+          </Stage>
         </div>
+        <ScaleObserver canvasWidth={animatedSize.width} />
+      </div>
 
-        {/* Scale observer — sets the CSS variable for visual scaling */}
-        <ScaleObserver canvasWidth={CANVAS_WIDTH} />
-
-        {/* Snap guides (visual only, outside capture) */}
-        {dragging && snapGuide && (
-          <>
-            {snapGuide.xPx !== undefined && (
-              <div style={{
-                position: 'absolute', top: 0, bottom: 0, width: '1px', zIndex: 30, pointerEvents: 'none',
-                left: `${(snapGuide.xPx / CANVAS_WIDTH) * 100}%`,
-                background: 'linear-gradient(to bottom, transparent, rgba(168,85,247,0.6), transparent)',
-                boxShadow: '0 0 6px rgba(168,85,247,0.4)',
-              }} />
-            )}
-            {snapGuide.yPx !== undefined && (
-              <div style={{
-                position: 'absolute', left: 0, right: 0, height: '1px', zIndex: 30, pointerEvents: 'none',
-                top: `${(snapGuide.yPx / CANVAS_HEIGHT) * 100}%`,
-                background: 'linear-gradient(to right, transparent, rgba(168,85,247,0.6), transparent)',
-                boxShadow: '0 0 6px rgba(168,85,247,0.4)',
-              }} />
-            )}
-          </>
-        )}
+      <div className="mt-4 w-full flex items-center justify-between px-2">
+        <label className="flex items-center gap-2 cursor-pointer text-xs font-bold uppercase tracking-widest text-gray-400 select-none">
+          <input type="checkbox" checked={showGuides} onChange={(e) => setShowGuides(e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
+          Guides
+        </label>
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Double-click to edit · Drag to snap · Use 🗑 to remove</span>
       </div>
     </div>
   );
@@ -354,3 +472,7 @@ function ScaleObserver({ canvasWidth }) {
 MemeCanvas.displayName = 'MemeCanvas';
 
 export default MemeCanvas;
+
+
+
+

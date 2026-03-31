@@ -26,6 +26,9 @@ app.post('/generate-caption', async (req, res) => {
     const captionData = await aiService.generateMemeCaption(text, textType || 'double');
     res.json(captionData);
   } catch (error) {
+    if (error.message === 'TOKEN_LIMIT_EXCEEDED') {
+      return res.status(503).json({ error: 'TOKEN_LIMIT_EXCEEDED' });
+    }
     console.error('Server error generating caption:', error);
     res.status(500).json({ error: 'An unexpected error occurred while processing the request' });
   }
@@ -35,8 +38,8 @@ app.post('/generate-caption', async (req, res) => {
 app.post('/generate-meme', async (req, res) => {
   const { topText, bottomText, templateId } = req.body;
 
-  if (!topText || !bottomText || !templateId) {
-    return res.status(400).json({ error: 'Top text, bottom text, and templateId are required' });
+  if (!topText || !templateId) {
+    return res.status(400).json({ error: 'Top text and templateId are required' });
   }
 
   try {
