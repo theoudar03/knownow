@@ -469,8 +469,9 @@ function App() {
   const generateCaption = async () => {
     if (!inputText.trim()) { setError('Paste an academic message first.'); return; }
     setLoading(true); setError(null); setErrorType(null);
+    const backendURL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
     try {
-      const res = await fetch('http://localhost:5000/generate-caption', {
+      const res = await fetch(`${backendURL}/generate-caption`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: inputText, textType: activeTemplate.text_type || 'double' }),
       });
@@ -554,9 +555,10 @@ function App() {
   const instantMeme = async () => {
     if (!inputText.trim()) { setError('Paste an academic message first.'); return; }
     setLoading(true); setError(null); setErrorType(null); setInstantResult(null);
+    const backendURL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
     try {
       // Step 1: Generate caption
-      const capRes = await fetch('http://localhost:5000/generate-caption', {
+      const capRes = await fetch(`${backendURL}/generate-caption`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: inputText, textType: 'double' }),
       });

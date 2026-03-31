@@ -236,3 +236,28 @@ Score = (Situation Match × 5) + (Tone Match × 2)
 * Ensures exported image matches UI exactly
 
 ---
+
+## 🚀 Deployment
+
+### 1. Backend (Render)
+
+* **Service Type**: Web Service
+* **Build Command**: `npm install`
+* **Start Command**: `npm start`
+* **Environment Variables**:
+  * `PORT`: 5000 (standard)
+  * `GEMINI_API_KEY`: Your Google AI Key
+  * `IMGFLIP_USERNAME`: Your Imgflip username
+  * `IMGFLIP_PASSWORD`: Your Imgflip password
+
+### 2. Frontend (Firebase)
+
+* **Build Command**: `npm run build`
+* **Output Directory**: `dist`
+* **Deployment**:
+  1. `npm install -g firebase-tools`
+  2. `firebase login`
+  3. `firebase init` (Select Hosting, use `dist` as public directory)
+  4. `firebase deploy`
+* **Environment Variables**:
+  * `VITE_BACKEND_URL`: Your Render backend URL (e.g., `https://knownow-backend.onrender.com`)
