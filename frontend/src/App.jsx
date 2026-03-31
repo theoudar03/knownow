@@ -348,7 +348,7 @@ function ComingSoonModal({ isOpen, onClose }) {
 
 function App() {
   const [view, setView] = useState('home'); // 'home' | 'custom' | 'instant'
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const [inputText, setInputText] = useState('');
   const [context, setContext] = useState('');
   const [tone, setTone] = useState('');
@@ -449,8 +449,8 @@ function App() {
 
   useEffect(() => {
     const saved = localStorage.getItem('theme');
-    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-    const dark = saved === 'dark' || (!saved && prefersDark);
+    // Default to light theme if no preference is saved
+    const dark = saved === 'dark';
     setIsDark(dark);
     document.documentElement.classList.toggle('dark', dark);
   }, []);
