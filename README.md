@@ -152,7 +152,7 @@ Score = (Situation × 5) + (Tone × 2)
 | Frontend      | React + Tailwind CSS |
 | Canvas Engine | Konva.js             |
 | Backend       | Node.js + Express    |
-| AI            | OpenAI API           |
+| AI            | Gemini AI API        |
 | Deployment    | Firebase             |
 
 ---
