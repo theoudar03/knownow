@@ -150,7 +150,7 @@ Matches deadline + stress
 
 ### AI Integration
 
-* OpenAI API (Caption generation)
+* GeminiAI API (Caption generation)
 
 ---
 
